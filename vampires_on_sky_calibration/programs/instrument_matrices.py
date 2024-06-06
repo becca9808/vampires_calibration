@@ -125,7 +125,7 @@ def full_system_mueller_matrix(
 
     # Changing the intensity detection efficiency of just camera1
     if cam_num == 1:
-        inst_matrix[0, :] *= em_gain
+        inst_matrix[:, :] *= em_gain
 
     return inst_matrix
 
