@@ -26,8 +26,8 @@ def full_system_mueller_matrix_normalized_double_diff_and_sum(
     FR2 = model(*fixed_params, parang, altitude, 
                                      HWP_ang, IMR_ang,  2, 2)
 
-    double_diff_matrix = ((FL1 - FR1) - (FL2 - FR2)) / 2
-    double_sum_matrix = ((FL1 + FR1) + (FL2 + FR2)) / 2
+    double_diff_matrix = ((FL1 - FR1) - (FL2 - FR2))
+    double_sum_matrix = ((FL1 + FR1) + (FL2 + FR2))
 
     return np.array([double_diff_matrix, double_sum_matrix])
 
