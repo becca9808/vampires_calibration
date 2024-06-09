@@ -2,10 +2,7 @@ import os
 import numpy as np
 
 import numpy as np
-from astropy.time import Time
-from astropy.coordinates import EarthLocation, AltAz, ICRS, Angle
-from astropy import units as u
-from datetime import datetime
+import shutil
 
 def parallactic_angle_altaz(alt, az, lat = 19.823806):
     """
@@ -57,6 +54,24 @@ def get_imrang_from_alt(altitudes):
 def load_all_files_from_directory(directory, extension):
     csv_files = [os.path.join(directory, file) for file in os.listdir(directory) if file.endswith(extension)]
     return csv_files
+
+def copy_file(src, dst):
+    """
+    Copies a file from src to dst.
+
+    Parameters:
+    src (str): Source file path.
+    dst (str): Destination file path.
+    """
+    try:
+        shutil.copy(src, dst)
+        print(f"File copied from {src} to {dst}")
+    except FileNotFoundError:
+        print(f"Source file {src} not found.")
+    except PermissionError:
+        print(f"Permission denied while copying {src} to {dst}.")
+    except Exception as e:
+        print(f"Error occurred while copying file: {e}")
 
 def stokes_to_deg_pol_and_aolp(Q, U):
     pol_percent = np.sqrt(Q ** 2 + U ** 2) * 100  # Convert to percentage
