@@ -1,9 +1,108 @@
 import numpy as np
 from pyMuellerMat import common_mms as cmm
 from pyMuellerMat import MuellerMat
+from datetime import datetime
+from astropy.time import Time
+from astropy.coordinates import SkyCoord
+
+def parse_ut_time(ut_time_str):
+    """
+    Parse a UT time string in the format "HH:MM:SS.S" to hours, minutes, and seconds.
+
+    Args:
+        ut_time_str (str): UT time string in the format "HH:MM:SS.S".
+
+    Returns:
+        tuple: Parsed hours, minutes, and seconds.
+    """
+    time_parts = ut_time_str.split(':')
+    hours = int(time_parts[0])
+    minutes = int(time_parts[1])
+    seconds = float(time_parts[2])
+    return hours, minutes, seconds
+
+def calculate_hour_angle(ra, lst):
+    """
+    Calculate the hour angle from right ascension and local sidereal time.
+
+    Args:
+        ra (float): Right Ascension in degrees.
+        lst (float): Local Sidereal Time in degrees.
+
+    Returns:
+        float: Hour Angle in degrees.
+    """
+    ha = lst - ra
+    if ha < 0:
+        ha += 360
+    elif ha >= 360:
+        ha -= 360
+    return ha
+
+def parallactic_angle(ha, dec, lat):
+    """
+    Calculate the parallactic angle using the hour angle and declination.
+
+    Args:
+        ha (float): Hour angle in degrees.
+        dec (float): Declination in degrees.
+        lat (float): Latitude of the observation site in degrees.
+
+    Returns:
+        float: Parallactic angle in degrees.
+    """
+    ha_rad = np.radians(ha)
+    dec_rad = np.radians(dec)
+    lat_rad = np.radians(lat)
+    pa = np.arctan2(np.sin(ha_rad), np.tan(lat_rad) * np.cos(dec_rad) - np.sin(dec_rad) * np.cos(ha_rad))
+    return np.degrees(pa)
+
+def calculate_parallactic_angles(latitude, longitude, target_name, altitudes, date_str, ut_time_str):
+    """
+    Calculate the parallactic angle for a range of altitudes at a specific date and time.
+
+    Args:
+        latitude (float): Latitude of the observation site in degrees.
+        longitude (float): Longitude of the observation site in degrees.
+        target_name (str): Name of the target.
+        altitudes (array-like): Range of altitudes in degrees.
+        date_str (str): Date of the observation in the format "YYYY-MM-DD".
+        ut_time_str (str): UT time string in the format "HH:MM:SS.S".
+
+    Returns:
+        list: Parallactic angles for the given altitudes.
+    """
+    # Parse the provided date and time
+    date = datetime.strptime(date_str, "%Y-%m-%d").date()
+    hours, minutes, seconds = parse_ut_time(ut_time_str)
+    time = datetime(date.year, date.month, date.day, hours, minutes, int(seconds), int((seconds % 1) * 1e6))
+
+    # Create a Time object for the observation time
+    observation_time = Time(time)
+
+    # Calculate LST (Local Sidereal Time)
+    lst = observation_time.sidereal_time('apparent', longitude).deg
+
+    # Get the target coordinates
+    target = SkyCoord.from_name(target_name)
+    
+    # Print RA in hours
+    ra_hours = target.ra.to_string(unit=u.hour, sep=':')
+    print(f"{target_name} Coordinates: RA: {ra_hours}, Dec: {target.dec}")
+    
+    # Calculate Hour Angle (HA)
+    ha = calculate_hour_angle(target.ra.deg, lst)
+
+    # Calculate parallactic angle
+    parallactic_angles = []
+    for alt in altitudes:
+        pa = parallactic_angle(ha, target.dec.deg, latitude)
+        parallactic_angles.append(pa)
+
+    return parallactic_angles
 
 def full_system_mueller_matrix_normalized_double_diff_and_sum(
-        model, fixed_params, parang, altitude, HWP_ang, IMR_ang):
+        model, fixed_params, parang, altitude, HWP_ang, IMR_ang, factor = 1):
     """
     Calculates an instrument matrix for the double difference or double
     sum
@@ -26,10 +125,141 @@ def full_system_mueller_matrix_normalized_double_diff_and_sum(
     FR2 = model(*fixed_params, parang, altitude, 
                                      HWP_ang, IMR_ang,  2, 2)
 
-    double_diff_matrix = ((FL1 - FR1) - (FL2 - FR2)) / 2
-    double_sum_matrix = ((FL1 + FR1) + (FL2 + FR2)) / 2
+    double_diff_matrix = ((FL1 - FR1) - (FL2 - FR2)) / factor
+    double_sum_matrix = ((FL1 + FR1) + (FL2 + FR2)) / factor
 
     return np.array([double_diff_matrix, double_sum_matrix])
+
+def full_system_mueller_matrix_QU(
+        model, fixed_params, parang, altitude, IMR_ang, factor = 1):
+    """
+    Calculates an instrument matrix for the double difference or double
+
+    Args:
+        fixed_params: (list) for use on "full_system_Mueller_matrix"
+
+    """
+    HWP_angs = np.array([0, 22.5, 45, 67.5])
+    double_diff_matrices = []
+    double_sum_matrices = []
+
+    for i, HWP_ang in enumerate(HWP_angs):
+        FL1 = model(*fixed_params, parang, altitude, 
+                                        HWP_ang, IMR_ang, 1, 1)
+        FR1 = model(*fixed_params, parang, altitude, 
+                                        HWP_ang, IMR_ang, 2, 1)
+        FL2 = model(*fixed_params, parang, altitude, 
+                                        HWP_ang, IMR_ang,  1, 2)
+        FR2 = model(*fixed_params, parang, altitude, 
+                                        HWP_ang, IMR_ang,  2, 2)
+
+        double_diff_matrix = ((FL1 - FR1) - (FL2 - FR2)) / factor
+        double_sum_matrix = ((FL1 + FR1) + (FL2 + FR2)) / factor
+
+        double_diff_matrices.append(double_diff_matrix)
+        double_sum_matrices.append(double_sum_matrix)
+    
+    Q_matrix = (double_diff_matrices[0] - double_diff_matrices[2]) / 2
+    U_matrix = (double_diff_matrices[1] - double_diff_matrices[3]) / 2
+
+    return np.array([Q_matrix, U_matrix])
+
+def propagate_onsky_standard(stokes_vector, altitudes, inst_matrix):
+    """
+    Propagates an on-sky standard through the system.
+
+    Args:
+        model: (function) model function
+        fixed_params: (list) list of fixed parameters
+        parang: (float) parallactic angle (degrees)
+        altitude: (float) altitude angle in header (degrees)
+        HWP_ang: (float) angle of the HWP (degrees)
+        IMR_ang: (float) angle of the IMR (degrees)
+        cam_num: (int) camera number (1 or 2)
+        FLC_state: (int) FLC state (1 or 2)
+    """
+    Q_values = []
+    U_values = []
+    
+    for altitude in altitudes:
+        result_stokes = inst_matrix @ stokes_vector
+        Q_values.append(result_stokes[1, 0])
+        U_values.append(result_stokes[2, 0])
+    
+    return np.array(Q_values), np.array(U_values)
+
+# TODO: Needs to be tested
+def full_system_mueller_matrix_QU(
+        model, fixed_params, parang, altitude, IMR_ang, factor = 1):
+    """
+    Calculates an instrument matrix for the double difference or double
+    sum
+
+    NOTE: See Boris' overleaf file "VAMPIRES Integral Pol" for more details
+    
+    Args:
+        fixed_params: (list) 
+
+    Returns:
+        data: (np.array) np.array([double_diff_matrix, double_sum_matrix])
+    """
+
+    double_diff_matrices = []
+    double_sum_matrices = []
+
+    HWP_angs = np.array([0, 22.5, 45, 67.5])
+    
+    for HWP_ang in HWP_angs:
+        FL1 = model(*fixed_params, parang, altitude, 
+                                        HWP_ang, IMR_ang, 1, 1)
+        FR1 = model(*fixed_params, parang, altitude, 
+                                        HWP_ang, IMR_ang, 2, 1)
+        FL2 = model(*fixed_params, parang, altitude, 
+                                        HWP_ang, IMR_ang,  1, 2)
+        FR2 = model(*fixed_params, parang, altitude, 
+                                        HWP_ang, IMR_ang,  2, 2)
+
+        double_diff_matrix = ((FL1 - FR1) - (FL2 - FR2)) / factor
+        double_sum_matrix = ((FL1 + FR1) + (FL2 + FR2)) / factor
+
+        double_diff_matrices.append(double_diff_matrix)
+        double_sum_matrices.append(double_sum_matrix)
+
+    Q_matrix = (double_diff_matrices[0] - double_diff_matrices[2]) / 2
+    U_matrix = (double_diff_matrices[1] - double_diff_matrices[3]) / 2
+
+    return np.array([Q_matrix, U_matrix])
+
+def m3_with_rotations(delta_m3, epsilon_m3, offset, parang, altitude):
+    """
+    Returns the Mueller matrix of M3 with rotation.
+
+    Args:
+        delta_m3: (float) retardance of M3 (waves)
+        epsilon_m3: (float) diattenuation of M3
+        parang: (float) parallactic angle (degrees)
+        altitude: (float) altitude angle in header (degrees)
+        offset: (float) offset angle of M3 (degrees) - fit from M3 diattenuation fits
+    """
+    # Parallactic angle rotation
+    parang_rot = cmm.Rotator(name = "parang")
+    parang_rot.properties['pa'] = parang
+
+    # One value for polarized standards purposes
+    m3 = cmm.DiattenuatorRetarder(name = "M3_Diattenuation")
+    m3.properties['theta'] = 0 ## Letting the parang and altitude rotators do the rotation
+    m3.properties['phi'] = 2 * np.pi * delta_m3 ## FREE PARAMETER
+    m3.properties['epsilon'] = epsilon_m3 ## FREE PARAMETER
+
+    alt_rot = cmm.Rotator(name = "altitude")
+    # -altitude at insistence of Miles
+    alt_rot.properties['pa'] = -(altitude + offset)
+
+    sys_mm = MuellerMat.SystemMuellerMatrix([alt_rot, m3, parang_rot])
+
+    inst_matrix = sys_mm.evaluate()
+
+    return inst_matrix
 
 def full_system_mueller_matrix( 
     delta_m3, epsilon_m3, offset_m3, delta_HWP, offset_HWP, delta_derot, 
@@ -80,9 +310,9 @@ def full_system_mueller_matrix(
 
     # Altitude angle rotation
     alt_rot = cmm.Rotator(name = "altitude")
-    # -altitude at insistence of Miles
-    alt_rot.properties['pa'] = -1 * (altitude + offset_m3)
-
+    # Trying Boris' altitude rotation definition
+    alt_rot.properties['pa'] = -(altitude + offset_m3)
+ 
     hwp = cmm.Retarder(name = 'hwp') 
     hwp.properties['phi'] = 2 * np.pi * delta_HWP 
     hwp.properties['theta'] = HWP_ang + offset_HWP
@@ -179,7 +409,7 @@ def full_system_mueller_matrix_boris(
         # Based on Boris' "computeHWPPolarimetryVAMPIRESMatrix"
         altitude = 90 - altitude
         # -altitude at insistence of Miles
-        alt_rot.properties['pa'] = -1 * (altitude + offset_m3)
+        alt_rot.properties['pa'] = -(altitude + offset_m3)
 
     hwp = cmm.Retarder(name = 'hwp') 
     hwp.properties['phi'] = delta_HWP 
