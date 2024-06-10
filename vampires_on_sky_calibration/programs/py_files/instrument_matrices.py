@@ -4,6 +4,8 @@ from pyMuellerMat import MuellerMat
 from datetime import datetime
 from astropy.time import Time
 from astropy.coordinates import SkyCoord
+import helper_functions as funcs
+
 
 def parse_ut_time(ut_time_str):
     """
@@ -115,6 +117,7 @@ def full_system_mueller_matrix_normalized_double_diff_and_sum(
     Returns:
         data: (np.array) np.array([double_diff_matrix, double_sum_matrix])
     """
+    print("Fixed Params:  " + str(fixed_params))
 
     FL1 = model(*fixed_params, parang, altitude, 
                                      HWP_ang, IMR_ang, 1, 1)
@@ -124,6 +127,11 @@ def full_system_mueller_matrix_normalized_double_diff_and_sum(
                                      HWP_ang, IMR_ang,  1, 2)
     FR2 = model(*fixed_params, parang, altitude, 
                                      HWP_ang, IMR_ang,  2, 2)
+    
+    print("FL1: " + str(FL1))
+    print("FR1: " + str(FR1))
+    print("FL2: " + str(FL2))
+    print("FR2: " + str(FR2))
 
     double_diff_matrix = ((FL1 - FR1) - (FL2 - FR2)) / factor
     double_sum_matrix = ((FL1 + FR1) + (FL2 + FR2)) / factor
@@ -246,7 +254,7 @@ def m3_with_rotations(delta_m3, epsilon_m3, offset, parang, altitude):
     parang_rot.properties['pa'] = parang
 
     # One value for polarized standards purposes
-    m3 = cmm.DiattenuatorRetarder(name = "M3_Diattenuation")
+    m3 = cmm.DiattenuatorRetarder(name = "m3")
     m3.properties['theta'] = 0 ## Letting the parang and altitude rotators do the rotation
     m3.properties['phi'] = 2 * np.pi * delta_m3 ## FREE PARAMETER
     m3.properties['epsilon'] = epsilon_m3 ## FREE PARAMETER
@@ -302,7 +310,7 @@ def full_system_mueller_matrix(
     parang_rot.properties['pa'] = parang
 
     # One value for polarized standards purposes
-    m3 = cmm.DiattenuatorRetarder(name = "M3_Diattenuation")
+    m3 = cmm.DiattenuatorRetarder(name = "m3")
     # TODO: Figure out how this relates to azimuthal angle
     m3.properties['theta'] = 0 ## Letting the parang and altitude rotators do the rotation
     m3.properties['phi'] = 2 * np.pi * delta_m3 ## FREE PARAMETER
@@ -358,6 +366,71 @@ def full_system_mueller_matrix(
         inst_matrix[:, :] *= em_gain
 
     return inst_matrix
+
+def internal_calibration_mueller_matrix( 
+    theta_pol, model, fixed_params, HWP_angs, IMR_angs):
+    """
+    Returns the double sum and differences based on the physical properties of
+    the components for a variety of different wavelengths.
+
+    Args:
+        delta_m3: (float) retardance of M3 (waves)
+        epsilon_m3: (float) diattenuation of M3 - fit from unpolarized standards
+        offset_m3: (float) offset angle of M3 (degrees) - fit from M3 diattenuation fits
+        delta_HWP: (float) retardance of the HWP (waves)
+        offset_HWP: (float) offset angle of the HWP (degrees)
+        delta_derot: (float) retardance of the IMR (waves)
+        offset_derot: (float) offset angle of the IMR (degrees)
+        delta_opts: (float) retardance of the in-between optics (waves)
+        epsilon_opts: (float) diattenuation of the in-between optics
+        rot_opts: (float) rotation of the in-between optics (degrees)
+        delta_FLC: (float) retardance of the FLC (waves)
+        rot_FLC: (float) rotation of the FLC (degrees)
+        em_gain: (float) ratio of the effective gain ratio of cam1 / cam2
+        parang: (float) parallactic angle (degrees)
+        altitude: (float) altitude angle in header (degrees)
+        HWP_ang: (float) angle of the HWP (degrees)
+        IMR_ang: (float) angle of the IMR (degrees)
+
+    Returns:
+        inst_matrix: A numpy array representing the Mueller matrix of the system. 
+        This matrix describes the change in polarization state as light passes 
+        through the system.
+    """
+
+    # TODO: Make this loop through IMR and HWP angles
+
+    # Q, U from the input Stokes parameters
+    Q, U = funcs.deg_pol_and_aolp_to_stokes(100, theta_pol)
+
+    # Assumed that I is 1 and V is 0
+    input_stokes = np.array([1, Q, U, 0]).reshape(-1, 1)
+
+    double_diffs = np.zeros([len(HWP_angs), len(IMR_angs)])
+    double_sums = np.zeros([len(HWP_angs), len(IMR_angs)])
+
+    # Take the observed intensities for each instrument state
+    # NOTE: No parallactic angle or altitude rotation
+    for i, HWP_ang in enumerate(HWP_angs):
+        for j, IMR_ang in enumerate(IMR_angs):
+            FL1_matrix = model(*fixed_params, 0, 0, HWP_ang, IMR_ang, 1, 1) 
+            FR1_matrix = model(*fixed_params, 0, 0, HWP_ang, IMR_ang, 2, 1)
+            FL2_matrix = model(*fixed_params, 0, 0, HWP_ang, IMR_ang,  1, 2)
+            FR2_matrix = model(*fixed_params, 0, 0, HWP_ang, IMR_ang,  2, 2)
+
+            FL1 = (FL1_matrix @ input_stokes)[0]
+            FR1 = (FR1_matrix @ input_stokes)[0]
+            FL2 = (FL2_matrix @ input_stokes)[0]
+            FR2 = (FR2_matrix @ input_stokes)[0]
+
+            double_diffs[i, j] = ((FL1 - FR1) - (FL2 - FR2)) / ((FL1 + FR1) + (FL2 + FR2))
+            double_sums[i, j] = ((FL1 - FR1) + (FL2 - FR2)) / ((FL1 + FR1) + (FL2 + FR2))
+
+    double_diffs = np.ndarray.flatten(double_diffs, order = "F")
+    double_sums = np.ndarray.flatten(double_sums, order = "F")
+    model = np.concatenate((double_diffs, double_sums))
+
+    return model
 
 def full_system_mueller_matrix_boris( 
     delta_m3, epsilon_m3, offset_m3, delta_HWP, delta_derot, delta_FLC1, 
