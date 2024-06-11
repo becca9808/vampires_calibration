@@ -44,12 +44,8 @@ def process_vampires_dpp_csv_file(csv_file):
     FR1 = df[(df["U_CAMERA"] == 2) & (df["U_FLCSTT"] == 1)]["R_15_TOTAL_COUNTS_PHOTON_NOISE"].values
     FR2 = df[(df["U_CAMERA"] == 2) & (df["U_FLCSTT"] == 2)]["R_15_TOTAL_COUNTS_PHOTON_NOISE"].values
 
-    # Adding together both FLC States
-    FL = FL1 + FL2
-    FR = FR1 + FR2
-
     # Assuming calculate_em_gain_ratio returns normalized_fluxes and em_gain_ratios
-    normalized_fluxes, em_gain_ratios = calculate_em_gain_ratio(FL, FR)
+    normalized_fluxes, em_gain_ratios = calculate_em_gain_ratio(FL1, FL2, FR1, FR2)
 
     # Filter out NaN values
     valid_indices = ~np.isnan(normalized_fluxes) & ~np.isnan(em_gain_ratios)
