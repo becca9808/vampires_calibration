@@ -117,7 +117,7 @@ def full_system_mueller_matrix_normalized_double_diff_and_sum(
     Returns:
         data: (np.array) np.array([double_diff_matrix, double_sum_matrix])
     """
-    print("Fixed Params:  " + str(fixed_params))
+    # print("Fixed Params:  " + str(fixed_params))
 
     FL1 = model(*fixed_params, parang, altitude, 
                                      HWP_ang, IMR_ang, 1, 1)
@@ -128,10 +128,10 @@ def full_system_mueller_matrix_normalized_double_diff_and_sum(
     FR2 = model(*fixed_params, parang, altitude, 
                                      HWP_ang, IMR_ang,  2, 2)
     
-    print("FL1: " + str(FL1))
-    print("FR1: " + str(FR1))
-    print("FL2: " + str(FL2))
-    print("FR2: " + str(FR2))
+    # print("FL1: " + str(FL1))
+    # print("FR1: " + str(FR1))
+    # print("FL2: " + str(FL2))
+    # print("FR2: " + str(FR2))
 
     double_diff_matrix = ((FL1 - FR1) - (FL2 - FR2)) / factor
     double_sum_matrix = ((FL1 + FR1) + (FL2 + FR2)) / factor
@@ -462,8 +462,8 @@ def full_system_mueller_matrix_boris(
         through the system.
     """
 
-    print("HWP Angle: " + str(HWP_ang))
-    print("IMR Angle: " + str(IMR_ang))
+    # print("HWP Angle: " + str(HWP_ang))
+    # print("IMR Angle: " + str(IMR_ang))
 
     if include_M3: 
         # One value for polarized standards purposes
@@ -495,11 +495,11 @@ def full_system_mueller_matrix_boris(
 
     flc = cmm.Retarder(name = "flc")
     if FLC_state == 1: 
-        print("Entered FLC 1")
+        # print("Entered FLC 1")
         flc.properties['phi'] = delta_FLC1 
         flc.properties['theta'] = rot_FLC1
-        print("FLC1 Retardance: " + str(flc.properties['phi']))
-        print("FLC1 Angle: " + str(flc.properties['theta']))
+        # print("FLC1 Retardance: " + str(flc.properties['phi']))
+        # print("FLC1 Angle: " + str(flc.properties['theta']))
     else:
         # print("Entered FLC 2")
         flc.properties['phi'] = delta_FLC2
