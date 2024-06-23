@@ -104,7 +104,8 @@ def calculate_parallactic_angles(latitude, longitude, target_name, altitudes, da
     return parallactic_angles
 
 def full_system_mueller_matrix_normalized_double_diff_and_sum(
-        model, fixed_params, parang, altitude, HWP_ang, IMR_ang, factor = 1):
+        model, fixed_params, parang, altitude, HWP_ang, IMR_ang, factor = 1,
+        change_first_I_term = False):
     """
     Calculates an instrument matrix for the double difference or double
     sum
@@ -136,10 +137,14 @@ def full_system_mueller_matrix_normalized_double_diff_and_sum(
     double_diff_matrix = ((FL1 - FR1) - (FL2 - FR2)) / factor
     double_sum_matrix = ((FL1 + FR1) + (FL2 + FR2)) / factor
 
+    if change_first_I_term:
+        double_diff_matrix[0, 0] = 1
+
     return np.array([double_diff_matrix, double_sum_matrix])
 
 def full_system_mueller_matrix_QU(
-        model, fixed_params, parang, altitude, IMR_ang, factor = 1):
+        model, fixed_params, parang, altitude, IMR_ang, factor = 1,
+        change_first_I_term = False):
     """
     Calculates an instrument matrix for the double difference or double
 
@@ -163,6 +168,9 @@ def full_system_mueller_matrix_QU(
 
         double_diff_matrix = ((FL1 - FR1) - (FL2 - FR2)) / factor
         double_sum_matrix = ((FL1 + FR1) + (FL2 + FR2)) / factor
+
+        if change_first_I_term:
+            double_diff_matrix[0, 0] = 1
 
         double_diff_matrices.append(double_diff_matrix)
         double_sum_matrices.append(double_sum_matrix)
@@ -308,6 +316,8 @@ def full_system_mueller_matrix(
     # Parallactic angle rotation
     parang_rot = cmm.Rotator(name = "parang")
     parang_rot.properties['pa'] = parang
+
+    # print("Parallactic Angle: " + str(parang_rot.properties['pa']))
 
     # One value for polarized standards purposes
     m3 = cmm.DiattenuatorRetarder(name = "m3")
