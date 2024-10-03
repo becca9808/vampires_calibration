@@ -15,10 +15,11 @@ def log_likelihood_residuals(data, model):
     return_value = np.sum(np.abs(data - model))
     return return_value 
 
-def likelihood_linear_polarizer_residuals(x, model, fixed_params, HWP_angs, 
-        IMR_angs, data, std):
+def likelihood_linear_polarizer_residuals(x, model, HWP_angs, IMR_angs, data, std):
+    # Setting all M3 parameters to zero
+    delta_m3, epsilon_m3, offset_m3 = 0, 0, 0
     theta_pol, delta_HWP, offset_HWP, delta_derot, offset_derot, delta_opts, epsilon_opts, rot_opts, delta_FLC, rot_FLC = x[0 : -1]
-    delta_m3, epsilon_m3, offset_m3, em_gain = fixed_params
+
     all_params = [delta_m3, epsilon_m3, offset_m3, delta_HWP, offset_HWP, 
         delta_derot, offset_derot, delta_opts, epsilon_opts, rot_opts, delta_FLC, 
         rot_FLC, em_gain]
@@ -31,11 +32,13 @@ def likelihood_linear_polarizer_residuals(x, model, fixed_params, HWP_angs,
     return return_value
 
 def log_prior_gaussian_1_deg_IMR_offset_5_deg_linear_polarizer_HWP_offsets_0_FLC_angle(theta):
-    pol_theta, delta_HWP, offset_HWP, delta_derot, offset_derot, \
-        delta_opt, epsilon_opt, rot_opt, delta_FLC, rot_FLC, log_f = theta
-    if not (-90 < pol_theta < 90 and 0 < delta_HWP < 0.5 and -5 < offset_HWP < 5 and 0 < delta_derot < 0.5 and \
-            -5 < offset_derot < 5 and -0.5 < delta_opt < 0.5 and 0 < epsilon_opt < 0.1 and \
-            -90 < rot_opt < 90 and 0 < delta_FLC < 0.5 and -90 < rot_FLC < 90 and -10 < log_f < 0):
+    em_gain, pol_theta, delta_FLC, delta_opt, delta_derot, delta_HWP, rot_FLC, \
+        rot_opt, offset_derot, offset_HWP, epsilon_opt, log_f = theta
+    if not (0 < em_gain < 1 and -90 < pol_theta < 90 and -1 < delta_FLC < 1 \
+        and -1 < delta_opt < 1 and 0 < delta_derot < 1 and \
+        0 < delta_HWP < 0.5 and -90 < rot_opt < 90 and \
+        -90 < offset_derot < 90 and -90 < offset_HWP < 90 and \
+        0 < epsilon_opt < 1 and -10 < log_f < 0):
         return -np.inf
 
     # Gaussian prior on pol_theta
@@ -69,22 +72,24 @@ def log_prior_gaussian_1_deg_IMR_offset_5_deg_linear_polarizer_HWP_offsets_0_FLC
 
 # Combining log priors with log likelihood function
 def log_probability_gaussian_1_deg_IMR_offset_5_deg_linear_polarizer_HWP_offsets_0_FLC_angle(theta, 
-    model, fixed_params, HWP_angs, IMR_angs, data, std):
+    model, HWP_angs, IMR_angs, data, std):
     lp = log_prior_gaussian_1_deg_IMR_offset_5_deg_linear_polarizer_HWP_offsets_0_FLC_angle(theta)
     if not np.isfinite(lp):
         return -np.inf
-    return lp + log_likelihood_linear_polarizer(theta, model, fixed_params, 
-        HWP_angs, IMR_angs, data, std) 
+    return lp + log_likelihood_linear_polarizer(theta, model, HWP_angs, 
+        IMR_angs, data, std) 
 
-def log_likelihood_linear_polarizer(x, model, fixed_params, HWP_angs, IMR_angs, 
+def log_likelihood_linear_polarizer(x, model, HWP_angs, IMR_angs, 
         data, std):
-    theta_pol, delta_HWP, offset_HWP, delta_derot, offset_derot, delta_opts, epsilon_opts, rot_opts, delta_FLC, rot_FLC = x[0 : -1]
-    delta_m3, epsilon_m3, offset_m3, em_gain = fixed_params
+    # Setting all M3 parameters to zero
+    delta_m3, epsilon_m3, offset_m3 = 0, 0, 0
+
+    theta_pol, delta_HWP, offset_HWP, delta_derot, offset_derot, delta_opts, \
+        epsilon_opts, rot_opts, delta_FLC, rot_FLC, em_gain = x
     all_params = [delta_m3, epsilon_m3, offset_m3, delta_HWP, offset_HWP, 
         delta_derot, offset_derot, delta_opts, epsilon_opts, rot_opts, delta_FLC, 
         rot_FLC, em_gain]
     model_values = matrices.internal_calibration_mueller_matrix(theta_pol, model, all_params, HWP_angs, IMR_angs)
-    
     
     data = general.reshape_and_flatten(data)
     std = general.reshape_and_flatten(std)

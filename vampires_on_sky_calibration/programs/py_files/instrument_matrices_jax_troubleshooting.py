@@ -1,6 +1,5 @@
-# Import necessary modules
-import jax.numpy as jnp
 from jax import jit, lax
+import jax.numpy as jnp
 from pyMuellerMat import common_mms as cmm
 from pyMuellerMat import MuellerMat
 import helper_functions_jax as funcs
@@ -9,6 +8,14 @@ import helper_functions_jax as funcs
 def get_wollaston_properties(cam_num):
     beam = 0 if cam_num == 1 else 1
     return {'beam': beam}
+
+@jit
+def get_beam_number(beam_num):
+    # Using integers 0 and 1 to represent 'o' and 'e'
+    return beam_num
+
+def convert_beam_number_to_string(beam_num):
+    return 'o' if beam_num == 0 else 'e'
 
 # Define full_system_mueller_matrix function
 @jit
@@ -52,8 +59,8 @@ def full_system_mueller_matrix(delta_m3=0, epsilon_m3=0, offset_m3=0, delta_HWP=
     flc.properties['phi'] = 2 * jnp.pi * delta_FLC
 
     wollaston = cmm.WollastonPrism()
-    beam = lax.cond(wollaston_properties['beam'] == 0, lambda _: 'o', lambda _: 'e', None)
-    wollaston.properties['beam'] = beam
+    beam_num = get_beam_number(wollaston_properties['beam'])
+    wollaston.properties['beam'] = convert_beam_number_to_string(beam_num)
 
     sys_mm = MuellerMat.SystemMuellerMatrix([wollaston, flc, optics, image_rotator, hwp, alt_rot, m3, parang_rot])
     inst_matrix = sys_mm.evaluate()

@@ -2,6 +2,34 @@ import numpy as np
 import matplotlib.pyplot as plt
 import general
 from matplotlib.lines import Line2D
+from IPython.display import display, Math, Latex
+from pyMuellerMat import common_mms as cmm
+from pyMuellerMat import MuellerMat
+
+import os
+import sys
+data_fitting_py_files_dir = os.path.abspath("../py_files/")
+sys.path.insert(0, data_fitting_py_files_dir)
+helper_func_py_files_dir = os.path.abspath("../../../vampires_on_sky_calibration/programs/py_files/")
+sys.path.insert(0, helper_func_py_files_dir)
+
+# Importing necessary packages
+import numpy as np
+import general
+import instrument_matrices as matrices
+import helper_functions as funcs
+
+import inspect
+
+# Old code
+# argspec = inspect.getargspec(self.function)
+
+# New code using getfullargspec
+# argspec = inspect.getfullargspec(self.function)
+
+# if argspec.defaults is not None:
+#     self.property_list = argspec.args[-len(argspec.defaults):]
+
 
 def unpackAngles(angles):
     """
@@ -300,9 +328,10 @@ def plot_random_chains(flat_samples, angles, data, sems, log_f, wavelengths,
     """
     HWP_angs, IMR_angs, num_HWP_angs, num_IMR_angs, num_data_points = \
         unpackAngles(angles)
+    delta_m3, epsilon_m3, offset_m3 = 0, 0, 0
 
-    reshaped_data = reshape_and_flatten(data)
-    sems = reshape_and_flatten(sems)
+    reshaped_data = general.reshape_and_flatten(data)
+    sems = general.reshape_and_flatten(sems)
 
     # Separating the data into double sum & difference
     if "Just_Diffs" in model_type:
@@ -310,7 +339,7 @@ def plot_random_chains(flat_samples, angles, data, sems, log_f, wavelengths,
         plotting_factor = 1
     else:
         data_double_diff, data_double_sum = \
-            sum_and_diff_separation(reshaped_data)
+            general.sum_and_diff_separation(reshaped_data)
         plotting_factor = 2
 
     # Generating angles for which to plot
@@ -340,33 +369,20 @@ def plot_random_chains(flat_samples, angles, data, sems, log_f, wavelengths,
         # TODO: Change existing functions to reflect these types
         if model_type == "Simplified":
             model = simplifiedAnalyticalSystemSolution(*sample[0 : -1], angles)
-        elif model_type == "Four_Wavelengths":
-            model = fourWavelengthSeparateEMGainsAndDeltaOpts(*sample[0 : -1], 
-                angles, wavelengths)
         elif model_type == "Linear_Polarizer":
-            model = analyticalSystemSolution_LinearPolarizer(*sample[0 : -1], 
-                angles)
-        elif model_type == "Four_Wavelengths_Six_Parameters":
-            model = four_wavelengths_six_parameters(*sample, angles, wavelengths)
-        elif model_type == "Four_Wavelengths_Fixed_Widths":
-            model = fourWavelengthSeparateEMGainsAndDeltaOpts_Fixed_Widths(*sample[0 : -1], 
-                angles, wavelengths)
-        elif model_type == "Four_Wavelengths_Just_Diffs":
-            model = fourWavelengthSeparateEMGainsAndDeltaOpts(*sample[0 : -1], 
-                angles, wavelengths, just_diffs = True)
-        elif model_type == "Four_Wavelengths_Just_Diffs_No_Offsets_Epsilon_Logf":
-            print("Four_Wavelengths_Just_Diffs_No_Offsets_Epsilon_Logf")
-            model = four_wavelengths_no_offsets_or_epsilon(*sample, angles, 
-                wavelengths, just_diffs = True)
-        elif model_type == "One_Wavelength_Physical_Model":
-            model = one_wavelength_no_offsets_or_epsilon_fixed_widths(*sample[0 : -1],
-            angles, wavelengths)
-        elif model_type == "One_Wavelength_Separate_Logfs":
-            model = one_wavelength_no_offsets_or_epsilon_fixed_widths(*sample[0 : -2],
-            angles, wavelengths)
-        elif model_type == "One_Wavelength_No_Logfs":
-            model = one_wavelength_no_offsets_or_epsilon_fixed_widths(*sample,
-            angles, wavelengths)
+            # NOTE: Removing log_f
+            sample = sample[0 : -1]
+
+            # NOTE: Zeros as for removing the effect of M3
+            theta_pol = sample[0]
+            sample = sample[1:]
+            sample = np.concatenate(([delta_m3, epsilon_m3, offset_m3], sample))
+
+            # NOTE: Sample now includes all the M3 elements and no theta_pol
+            print(type(sample))
+            model = internal_calibration_mueller_matrix(theta_pol, 
+            full_system_mueller_matrix, sample, HWP_angs, IMR_angs)
+            print(model)
         else:
             # Original model
             model = analyticalSystemSolution(*sample[0 : -1], angles)
@@ -394,7 +410,7 @@ def plot_random_chains(flat_samples, angles, data, sems, log_f, wavelengths,
 
         # Separating the data into double sum & difference
         if "Just_Diffs" not in model_type:
-            model_double_diff, model_double_sum = sum_and_diff_separation(model)
+            model_double_diff, model_double_sum = general.sum_and_diff_separation(model)
         else:
             model_double_diff = model
             print("Just_Diffs")
@@ -405,6 +421,8 @@ def plot_random_chains(flat_samples, angles, data, sems, log_f, wavelengths,
 
         # print("Double Diff Residuals: " + str(residuals_double_diff))
         # print("Double Sum Residuals: " + str(residuals_double_sum))
+
+        print(model)
 
         for i, wavelength in enumerate(wavelengths):
         # Plotting the model double difference
@@ -547,3 +565,189 @@ def make_corner_plot(flat_samples, labels, median_or_max = "median",
     plt.tick_params(axis = 'y', which = 'both', pad = tick_padding)
 
     plt.show()
+
+# Prints then returns the median MCMC values and its associated values
+# flat_samples: already flattened (and discarded/thinned if applicable) samples
+# labels: names of all optimized parameters (string list)
+def print_and_get_MCMC_median_values_and_errors(ndim, flat_samples, labels):
+    # Lists for storing MCMC best fit value
+    mcmc_best_fit = []
+    mcmc_errors = []
+
+    for i in range(ndim):
+        mcmc = np.percentile(flat_samples[:, i], [16, 50, 84])
+        q = np.diff(mcmc)
+        # Correcting the LaTeX formatting
+        txt = r"${{{0}}} = {1:.3f}_{{-{2:.3f}}}^{{+{3:.3f}}}$".format(labels[i], mcmc[1], q[0], q[1])
+        display(Math(txt))
+
+        # Saving list values
+        mcmc_best_fit.append(mcmc[1])
+        mcmc_errors.append(q)
+
+    # Making lists numpy arrays before returning them
+    return np.array(mcmc_best_fit), np.array(mcmc_errors)
+
+def full_system_mueller_matrix( 
+    delta_m3, epsilon_m3, offset_m3, delta_HWP, offset_HWP, delta_derot, 
+    offset_derot, delta_opts, epsilon_opts, rot_opts, delta_FLC, rot_FLC, 
+    em_gain, parang, altitude, HWP_ang, IMR_ang, cam_num, FLC_state):
+    """
+    Returns the double sum and differences based on the physical properties of
+    the components for a variety of different wavelengths.
+
+    Args:
+        delta_m3: (float) retardance of M3 (waves)
+        epsilon_m3: (float) diattenuation of M3 - fit from unpolarized standards
+        offset_m3: (float) offset angle of M3 (degrees) - fit from M3 diattenuation fits
+        delta_HWP: (float) retardance of the HWP (waves)
+        offset_HWP: (float) offset angle of the HWP (degrees)
+        delta_derot: (float) retardance of the IMR (waves)
+        offset_derot: (float) offset angle of the IMR (degrees)
+        delta_opts: (float) retardance of the in-between optics (waves)
+        epsilon_opts: (float) diattenuation of the in-between optics
+        rot_opts: (float) rotation of the in-between optics (degrees)
+        delta_FLC: (float) retardance of the FLC (waves)
+        rot_FLC: (float) rotation of the FLC (degrees)
+        em_gain: (float) ratio of the effective gain ratio of cam1 / cam2
+        parang: (float) parallactic angle (degrees)
+        altitude: (float) altitude angle in header (degrees)
+        HWP_ang: (float) angle of the HWP (degrees)
+        IMR_ang: (float) angle of the IMR (degrees)
+        cam_num: (int) camera number (1 or 2)
+        FLC_state: (int) FLC state (1 or 2)
+
+    Returns:
+        inst_matrix: A numpy array representing the Mueller matrix of the system. 
+        This matrix describes the change in polarization state as light passes 
+        through the system.
+    """
+
+    # Parallactic angle rotation
+    parang_rot = cmm.Rotator(name = "parang")
+    parang_rot.properties['pa'] = parang
+
+    # print("Parallactic Angle: " + str(parang_rot.properties['pa']))
+
+    # One value for polarized standards purposes
+    m3 = cmm.DiattenuatorRetarder(name = "m3")
+    # TODO: Figure out how this relates to azimuthal angle
+    m3.properties['theta'] = 0 ## Letting the parang and altitude rotators do the rotation
+    m3.properties['phi'] = 2 * np.pi * delta_m3 ## FREE PARAMETER
+    m3.properties['epsilon'] = epsilon_m3 ## FREE PARAMETER
+
+    # Altitude angle rotation
+    alt_rot = cmm.Rotator(name = "altitude")
+    # Trying Boris' altitude rotation definition
+    alt_rot.properties['pa'] = -(altitude + offset_m3)
+ 
+    hwp = cmm.Retarder(name = 'hwp') 
+    hwp.properties['phi'] = 2 * np.pi * delta_HWP 
+    hwp.properties['theta'] = HWP_ang + offset_HWP
+    # print("HWP Angle: " + str(hwp.properties['theta']))
+
+    image_rotator = cmm.Retarder(name = "image_rotator")
+    image_rotator.properties['phi'] = 2 * np.pi * delta_derot 
+    image_rotator.properties['theta'] = IMR_ang + offset_derot
+
+    optics = cmm.DiattenuatorRetarder(name = "optics") # QWPs are in here too. 
+    optics.properties['theta'] = rot_opts 
+    optics.properties['phi'] = 2 * np.pi * delta_opts 
+    optics.properties['epsilon'] = epsilon_opts 
+
+    flc = cmm.Retarder(name = "flc")
+    flc.properties['phi'] = 2 * np.pi * delta_FLC 
+    if FLC_state == 1: 
+        # print("Entered FLC 1")
+        flc.properties['theta'] = rot_FLC
+        # print("FLC Angle: " + str(flc.properties['theta']))
+    else:
+        # print("Entered FLC 2")
+        flc.properties['theta'] = rot_FLC + 45
+        # print("FLC Angle: " + str(flc.properties['theta']))
+
+    wollaston = cmm.WollastonPrism()
+    if cam_num == 1:
+        # print("Entered o beam")
+        wollaston.properties['beam'] = 'o'
+        # print(wollaston.properties['beam'])
+    else:
+        # print("Entered e beam")
+        wollaston.properties['beam'] = 'e'
+        # print(wollaston.properties['beam'])
+
+    sys_mm = MuellerMat.SystemMuellerMatrix([wollaston, flc, optics, \
+        image_rotator, hwp, alt_rot, m3, parang_rot])
+        
+    inst_matrix = sys_mm.evaluate()
+
+    # Changing the intensity detection efficiency of just camera1
+    if cam_num == 1:
+        inst_matrix[:, :] *= em_gain
+
+    return inst_matrix
+
+def internal_calibration_mueller_matrix( 
+    theta_pol, model, fixed_params, HWP_angs, IMR_angs):
+    """
+    Returns the double sum and differences based on the physical properties of
+    the components for a variety of different wavelengths.
+
+    Args:
+        delta_m3: (float) retardance of M3 (waves)
+        epsilon_m3: (float) diattenuation of M3 - fit from unpolarized standards
+        offset_m3: (float) offset angle of M3 (degrees) - fit from M3 diattenuation fits
+        delta_HWP: (float) retardance of the HWP (waves)
+        offset_HWP: (float) offset angle of the HWP (degrees)
+        delta_derot: (float) retardance of the IMR (waves)
+        offset_derot: (float) offset angle of the IMR (degrees)
+        delta_opts: (float) retardance of the in-between optics (waves)
+        epsilon_opts: (float) diattenuation of the in-between optics
+        rot_opts: (float) rotation of the in-between optics (degrees)
+        delta_FLC: (float) retardance of the FLC (waves)
+        rot_FLC: (float) rotation of the FLC (degrees)
+        em_gain: (float) ratio of the effective gain ratio of cam1 / cam2
+        parang: (float) parallactic angle (degrees)
+        altitude: (float) altitude angle in header (degrees)
+        HWP_ang: (float) angle of the HWP (degrees)
+        IMR_ang: (float) angle of the IMR (degrees)
+
+    Returns:
+        inst_matrix: A numpy array representing the Mueller matrix of the system. 
+        This matrix describes the change in polarization state as light passes 
+        through the system.
+    """
+
+    # TODO: Make this loop through IMR and HWP angles
+
+    # Q, U from the input Stokes parameters
+    Q, U = funcs.deg_pol_and_aolp_to_stokes(100, theta_pol)
+
+    # Assumed that I is 1 and V is 0
+    input_stokes = np.array([1, Q, U, 0]).reshape(-1, 1)
+
+    double_diffs = np.zeros([len(HWP_angs), len(IMR_angs)])
+    double_sums = np.zeros([len(HWP_angs), len(IMR_angs)])
+
+    # Take the observed intensities for each instrument state
+    # NOTE: No parallactic angle or altitude rotation
+    for i, HWP_ang in enumerate(HWP_angs):
+        for j, IMR_ang in enumerate(IMR_angs):
+            FL1_matrix = model(*fixed_params, 0, 0, HWP_ang, IMR_ang, 1, 1) 
+            FR1_matrix = model(*fixed_params, 0, 0, HWP_ang, IMR_ang, 2, 1)
+            FL2_matrix = model(*fixed_params, 0, 0, HWP_ang, IMR_ang,  1, 2)
+            FR2_matrix = model(*fixed_params, 0, 0, HWP_ang, IMR_ang,  2, 2)
+
+            FL1 = (FL1_matrix @ input_stokes)[0]
+            FR1 = (FR1_matrix @ input_stokes)[0]
+            FL2 = (FL2_matrix @ input_stokes)[0]
+            FR2 = (FR2_matrix @ input_stokes)[0]
+
+            double_diffs[i, j] = ((FL1 - FR1) - (FL2 - FR2)) / ((FL1 + FR1) + (FL2 + FR2))
+            double_sums[i, j] = ((FL1 - FR1) + (FL2 - FR2)) / ((FL1 + FR1) + (FL2 + FR2))
+
+    double_diffs = np.ndarray.flatten(double_diffs, order = "F")
+    double_sums = np.ndarray.flatten(double_sums, order = "F")
+    model = np.concatenate((double_diffs, double_sums))
+
+    return model
