@@ -600,7 +600,7 @@ def full_system_mueller_matrix_boris(
 
     hwp = cmm.Retarder(name = 'hwp') 
     hwp.properties['phi'] = delta_HWP 
-    hwp.properties['theta'] = HWP_ang
+    hwp.properties['theta'] = HWP_ang 
     # print("HWP Angle: " + str(hwp.properties['theta']))
 
     image_rotator = cmm.Retarder(name = "image_rotator")

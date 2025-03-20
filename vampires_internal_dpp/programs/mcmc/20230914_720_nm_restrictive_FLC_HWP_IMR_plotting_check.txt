@@ -1,0 +1,84 @@
+import os
+import sys
+data_fitting_py_files_dir = os.path.abspath("../py_files/")
+sys.path.insert(0, data_fitting_py_files_dir)
+helper_func_py_files_dir = os.path.abspath("../../../vampires_on_sky_calibration/programs/py_files/")
+sys.path.insert(0, helper_func_py_files_dir)
+
+# Importing necessary packages
+import numpy as np
+import emcee
+import h5py
+import multiprocessing
+from multiprocessing import Pool
+import instrument_matrices
+import data_fitting as fitting
+import data_plotting as plotting
+import shutil
+from IPython.display import display, Math, Latex
+
+# NOTE: From old MCMC plotting checkers
+# from astropy.io import fits
+# import matplotlib.pyplot as plt
+# import numpy as np
+# from scipy.optimize import curve_fit
+# from scipy.optimize import minimize
+# import math
+# import emcee
+# import corner
+# from IPython.display import display, Math
+# import MCMC_SetUp
+# import shutil
+
+HWP_angs = np.array([0., 11.25, 22.5, 33.75, 45., 56.25, 67.5, 78.75])
+IMR_angs = np.array([45., 57.5, 70., 82.5, 95., 107.5, 120., 132.5])
+wavelengths = np.array([610, 670, 720, 760])
+angles = [HWP_angs, IMR_angs]
+
+# Last index is for choosing the wavelength
+
+index = 2
+wavelength = 720
+steps = 40000
+
+data_path = "/home/rebeccaz/Programs/VAMPIRES/vampires_calibration/vampires_internal_dpp/data/20230914/"
+double_differences = -np.load(data_path + "double_diffs_20230914_MBI.npy")[:, :, index]
+double_sums = -np.load(data_path + "double_sums_20230914_MBI.npy")[:, :, index]
+double_difference_errs = np.load(data_path + "double_diff_stds_20230914_MBI.npy")[:, :, index]
+double_sum_errs = np.load(data_path + "double_sum_stds_20230914_MBI.npy")[:, :, index]
+data = np.array([double_differences, double_sums])
+stds = np.array([double_difference_errs, double_sum_errs])
+
+# angles = np.array(angles)
+# angles = np.ndarray.flatten(angles)
+
+labels = [r"\theta_{LP}", r"\phi_{HWP}", r"\delta_{HWP}", 
+    r"\phi_{IMR}", r"\delta_{IMR}", r"\phi_{opt}", r"\epsilon_{opt}", 
+    r"\theta_{opt}", r"\phi_{FLC}", r"\theta_{FLC}", "EM \ Gain", "Log \ f"]
+
+# Blocks for loading in the progress file and displaying them
+original_string = str(wavelengths[index]) + \
+    "nm_Eleven_Parameter_Four_Gaussian_Offsets_With_Logf_0_FLC_HWP_Less_Than_Half_Wave_Scipy_Guess_MCMC_Fit_" + str(steps) \
+    + "_Steps"
+
+# Copy existing file so as not to disturb MCMC
+original = original_string + ".h5"
+copy = original_string + "_copy.h5"
+shutil.copyfile(original, copy)
+
+reader = emcee.backends.HDFBackend(copy, read_only = True)
+n_steps = reader.iteration
+print(f"Number of steps: {n_steps}")
+
+# post_MCMC_plots_and_print_statements(sampler, chain_plot_size, discard_n, thin_n, labels, data, sems, 
+# fig_dimensions = (20, 30), wavelength)
+
+discard_n = 3000
+thin_n = 1
+
+# Data and SEMs need to be flattened
+MCMC_median_params = plotting.post_MCMC_plots_and_print_statements(reader, 
+    discard_n, thin_n, labels, angles, data, stds, [wavelength], 
+    "Linear_Polarizer", num_chains = 100, plot_MCMC_chains = False)
+
+
